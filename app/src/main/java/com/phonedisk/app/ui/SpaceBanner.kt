@@ -1,6 +1,5 @@
 package com.phonedisk.app.ui
 
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Card
@@ -26,7 +25,7 @@ fun SpaceBanner(folder: File) {
     LaunchedEffect(folder.absolutePath) {
         while (true) {
             free = Storage.availableBytes(folder)
-            delay(2000)
+            delay(4000)
         }
     }
     val critical = free in 0 until Storage.CRITICAL_BYTES
@@ -42,17 +41,13 @@ fun SpaceBanner(folder: File) {
         )
         else -> CardDefaults.cardColors()
     }
+    val text = when {
+        free < 0 -> "剩余空间未知"
+        critical -> "剩余 ${Format.bytes(free)}，空间快满，下大文件会被拦住"
+        low -> "剩余 ${Format.bytes(free)}，不到 2 GB，下镜像前请确认够用"
+        else -> "剩余 ${Format.bytes(free)}"
+    }
     Card(modifier = Modifier.fillMaxWidth(), colors = colors) {
-        Column(Modifier.padding(16.dp)) {
-            Text("手机剩余空间：${if (free < 0) "未知" else Format.bytes(free)}", style = MaterialTheme.typography.titleMedium)
-            Text(
-                when {
-                    critical -> "空间快满。再下大文件会被拦住，请先把 Download/PhoneDisk 里的文件拷到电脑或删掉。"
-                    low -> "剩余不到 2 GB。镜像和安装包很大，添加下载后会按文件大小检查，不够会停住。"
-                    else -> "大文件开始前会检查体积。空间不够会提示还差多少，不会把手机写满。"
-                },
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
+        Text(text, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp), style = MaterialTheme.typography.bodyMedium)
     }
 }

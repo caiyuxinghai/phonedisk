@@ -18,7 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.HelpOutline
+import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -51,7 +51,7 @@ fun ShareScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                 title = { Text("传到电脑") },
                 actions = {
                     IconButton(onClick = { showHelp = true }) {
-                        Icon(Icons.Outlined.HelpOutline, contentDescription = "使用说明")
+                        Icon(Icons.AutoMirrored.Outlined.HelpOutline, contentDescription = "使用说明")
                     }
                 },
             )

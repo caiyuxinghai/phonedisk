@@ -145,20 +145,25 @@ class DownloadService : Service() {
                     )
                     startFg(progressNotification(task.fileName, task.downloadedBytes, if (knownSize > 0) knownSize else task.totalBytes, 0))
                     var lastName: String? = null
+                    var lastUi = 0L
                     val sink: (com.phonedisk.app.download.DownloadEngine.Progress) -> Unit = { p ->
                         if (!p.fileName.isNullOrBlank()) lastName = p.fileName
-                        runBlocking {
-                            val latest = repo.get(task.id) ?: return@runBlocking
-                            repo.update(
-                                latest.copy(
-                                    downloadedBytes = p.downloaded,
-                                    totalBytes = if (p.total > 0) p.total else latest.totalBytes,
-                                    speedBps = p.speedBps,
-                                    status = TaskStatus.RUNNING,
-                                ),
-                            )
+                        val now = System.currentTimeMillis()
+                        if (now - lastUi >= 1000L) {
+                            lastUi = now
+                            runBlocking {
+                                val latest = repo.get(task.id) ?: return@runBlocking
+                                repo.update(
+                                    latest.copy(
+                                        downloadedBytes = p.downloaded,
+                                        totalBytes = if (p.total > 0) p.total else latest.totalBytes,
+                                        speedBps = p.speedBps,
+                                        status = TaskStatus.RUNNING,
+                                    ),
+                                )
+                            }
+                            startFg(progressNotification(task.fileName, p.downloaded, p.total, p.speedBps))
                         }
-                        startFg(progressNotification(task.fileName, p.downloaded, p.total, p.speedBps))
                     }
                     try {
                         engine.download(
@@ -329,7 +334,9 @@ class DownloadService : Service() {
             .setOnlyAlertOnce(true)
         if (total > 0) {
             val pct = ((downloaded * 100) / total).toInt().coerceIn(0, 100)
-            builder.setContentText("${Format.bytes(downloaded)} / ${Format.bytes(total)} · ${Format.speed(speed)}")
+            val eta = Format.eta(downloaded, total, speed)
+            val extra = if (eta.isNotEmpty()) " · $eta" else ""
+            builder.setContentText("${Format.bytes(downloaded)} / ${Format.bytes(total)} · ${Format.speed(speed)}$extra")
             builder.setProgress(100, pct, false)
         } else {
             builder.setContentText("${Format.bytes(downloaded)} · ${Format.speed(speed)}")

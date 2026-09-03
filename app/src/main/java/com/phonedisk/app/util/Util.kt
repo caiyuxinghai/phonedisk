@@ -126,6 +126,25 @@ object Format {
         if (total <= 0) return 0f
         return (downloaded.toDouble() / total.toDouble()).toFloat().coerceIn(0f, 1f)
     }
+
+    fun percentLabel(downloaded: Long, total: Long): String {
+        if (total <= 0) return ""
+        return "${((downloaded * 100) / total).coerceIn(0, 100)}%"
+    }
+
+    fun eta(downloaded: Long, total: Long, bps: Long): String {
+        if (total <= 0 || bps <= 0 || downloaded >= total) return ""
+        val sec = ((total - downloaded) / bps).coerceAtLeast(0)
+        val h = sec / 3600
+        val m = (sec % 3600) / 60
+        val s = sec % 60
+        return when {
+            h > 48 -> "剩余 ${h / 24} 天"
+            h > 0 -> "剩余 ${h}小时${m}分"
+            m > 0 -> "剩余 ${m}分${s}秒"
+            else -> "剩余 ${s}秒"
+        }
+    }
 }
 
 object Storage {

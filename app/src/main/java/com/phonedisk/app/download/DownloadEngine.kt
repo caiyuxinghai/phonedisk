@@ -9,8 +9,9 @@ import com.phonedisk.app.util.Storage
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
-import java.io.RandomAccessFile
+import java.nio.ByteBuffer
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -34,7 +35,7 @@ class DownloadEngine {
             if (!referer.isNullOrBlank()) builder.header("Referer", referer)
             return builder.build()
         }
-        val headClient = client.newBuilder().readTimeout(20, TimeUnit.SECONDS).build()
+        val headClient = client.newBuilder().readTimeout(8, TimeUnit.SECONDS).connectTimeout(8, TimeUnit.SECONDS).build()
         try {
             headClient.newCall(request(Request.Builder().url(url).head())).execute().use { resp ->
                 plausibleSize(resp.header("Content-Length")?.toLongOrNull() ?: -1L, resp.header("Content-Type"))?.let { return it }
@@ -128,18 +129,17 @@ class DownloadEngine {
                 }
                 val nameFromHeader = FileNames.fromDisposition(response.header("Content-Disposition"))
 
-                RandomAccessFile(part, "rw").use { raf ->
-                    if (!append) {
-                        raf.setLength(0)
-                    }
-                    raf.seek(startAt)
+                FileOutputStream(part, append).use { fos ->
+                    val channel = fos.channel
                     val input = body.byteStream()
-                    val buf = ByteArray(64 * 1024)
+                    val buf = ByteArray(512 * 1024)
+                    val wrap = ByteBuffer.wrap(buf)
                     var downloaded = startAt
                     var windowBytes = 0L
                     var windowStart = System.nanoTime()
                     var lastEmit = 0L
                     var lastSpaceCheck = downloaded
+                    var ema = 0.0
                     val spaceDir = part.parentFile ?: finalFile.parentFile
                     while (true) {
                         if (cancelFlag.get()) {
@@ -158,29 +158,34 @@ class DownloadEngine {
                         }
                         if (n < 0) break
                         try {
-                            raf.write(buf, 0, n)
+                            wrap.clear()
+                            wrap.limit(n)
+                            while (wrap.hasRemaining()) {
+                                channel.write(wrap)
+                            }
                         } catch (e: IOException) {
                             if (Storage.isNoSpace(e)) throw NoSpace()
                             throw e
                         }
                         downloaded += n
                         windowBytes += n
-                        if (spaceDir != null && downloaded - lastSpaceCheck >= 4L * 1024 * 1024) {
+                        if (spaceDir != null && downloaded - lastSpaceCheck >= 8L * 1024 * 1024) {
                             val left = Storage.availableBytes(spaceDir)
                             if (left in 0 until 32L * 1024 * 1024) throw NoSpace()
                             lastSpaceCheck = downloaded
                         }
                         val now = System.nanoTime()
-                        if (now - lastEmit >= 300_000_000L) {
+                        if (now - lastEmit >= 500_000_000L) {
                             val elapsed = (now - windowStart) / 1_000_000_000.0
-                            val speed = if (elapsed > 0) (windowBytes / elapsed).toLong() else 0L
-                            onProgress(Progress(downloaded, total, speed, nameFromHeader))
+                            val instant = if (elapsed > 0) windowBytes / elapsed else 0.0
+                            ema = if (ema == 0.0) instant else ema * 0.7 + instant * 0.3
+                            onProgress(Progress(downloaded, total, ema.toLong(), nameFromHeader))
                             lastEmit = now
                             windowBytes = 0
                             windowStart = now
                         }
                     }
-                    raf.fd.sync()
+                    channel.force(false)
                     onProgress(Progress(downloaded, if (total > 0) total else downloaded, 0, nameFromHeader))
                 }
 

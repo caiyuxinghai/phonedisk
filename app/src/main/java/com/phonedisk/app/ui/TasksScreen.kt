@@ -17,8 +17,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import com.phonedisk.app.data.DownloadTaskEntity
 import com.phonedisk.app.data.TaskStatus
 import com.phonedisk.app.util.Format
+import com.phonedisk.app.util.Prefs
 import com.phonedisk.app.util.Storage
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -70,7 +71,7 @@ fun TasksScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                 title = { Text("任务") },
                 actions = {
                     IconButton(onClick = { showHelp = true }) {
-                        Icon(Icons.Outlined.HelpOutline, contentDescription = "使用说明")
+                        Icon(Icons.AutoMirrored.Outlined.HelpOutline, contentDescription = "使用说明")
                     }
                 },
             )
@@ -90,7 +91,7 @@ fun TasksScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
         ) {
             item {
                 Text(
-                    "把链接贴进来，或从浏览器点「分享到 随身下载盘」。支持直链、Google Drive / Dropbox / OneDrive、GitHub、Hugging Face。不支持 Steam 游戏库。",
+                    "贴链接或从浏览器分享到这里。大文件可后台下，回家再拷到电脑。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -181,9 +182,19 @@ private fun TaskCard(task: DownloadTaskEntity, vm: AppViewModel) {
             } else if (task.status == TaskStatus.RUNNING) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
+            val pct = Format.percentLabel(task.downloadedBytes, task.totalBytes)
+            val eta = if (task.status == TaskStatus.RUNNING) Format.eta(task.downloadedBytes, task.totalBytes, task.speedBps) else ""
             Text(
-                "${Format.bytes(task.downloadedBytes)} / ${Format.bytes(task.totalBytes)}" +
-                    if (task.status == TaskStatus.RUNNING) " · ${Format.speed(task.speedBps)}" else "",
+                buildString {
+                    append(Format.bytes(task.downloadedBytes))
+                    append(" / ")
+                    append(Format.bytes(task.totalBytes))
+                    if (pct.isNotEmpty()) append(" · ").append(pct)
+                    if (task.status == TaskStatus.RUNNING) {
+                        append(" · ").append(Format.speed(task.speedBps))
+                        if (eta.isNotEmpty()) append(" · ").append(eta)
+                    }
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -225,7 +236,7 @@ private fun AddDialog(
 ) {
     var url by remember { mutableStateOf(initialUrl?.trim()?.ifBlank { null } ?: clipboardText(context)) }
     var name by remember { mutableStateOf("") }
-    var wifiOnly by remember { mutableStateOf(true) }
+    var wifiOnly by remember { mutableStateOf(Prefs.wifiOnly(context)) }
     var error by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
@@ -248,7 +259,10 @@ private fun AddDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = wifiOnly, onCheckedChange = { wifiOnly = it })
+                    Checkbox(checked = wifiOnly, onCheckedChange = {
+                        wifiOnly = it
+                        Prefs.setWifiOnly(context, it)
+                    })
                     Text("仅 Wi‑Fi 下载")
                 }
                 val free = Storage.availableBytes(folder)

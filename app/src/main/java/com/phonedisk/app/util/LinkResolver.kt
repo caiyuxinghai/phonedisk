@@ -34,11 +34,21 @@ class MemoryCookieJar : CookieJar {
 object HttpClients {
     val cookies = MemoryCookieJar()
     val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)
         .writeTimeout(0, TimeUnit.SECONDS)
+        .pingInterval(20, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
         .followRedirects(true)
         .followSslRedirects(true)
+        .connectionPool(okhttp3.ConnectionPool(8, 5, TimeUnit.MINUTES))
+        .dispatcher(
+            okhttp3.Dispatcher().apply {
+                maxRequests = 8
+                maxRequestsPerHost = 4
+            },
+        )
+        .protocols(listOf(okhttp3.Protocol.HTTP_2, okhttp3.Protocol.HTTP_1_1))
         .cookieJar(cookies)
         .build()
 }

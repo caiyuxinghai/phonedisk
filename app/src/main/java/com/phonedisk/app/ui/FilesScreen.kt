@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.HelpOutline
+import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -54,7 +54,7 @@ fun FilesScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                 title = { Text("文件") },
                 actions = {
                     IconButton(onClick = { showHelp = true }) {
-                        Icon(Icons.Outlined.HelpOutline, contentDescription = "使用说明")
+                        Icon(Icons.AutoMirrored.Outlined.HelpOutline, contentDescription = "使用说明")
                     }
                 },
             )
