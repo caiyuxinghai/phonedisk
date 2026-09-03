@@ -21,9 +21,13 @@ object TaskStatus {
     const val FAILED = "failed"
     const val CANCELED = "canceled"
     const val MSG_HOTSPOT = "HOTSPOT_CONFIRM"
+    const val MSG_CHARGING = "WAIT_CHARGING"
 
     fun waitingHotspot(task: DownloadTaskEntity): Boolean =
         task.status == PAUSED && task.errorMessage == MSG_HOTSPOT
+
+    fun waitingCharge(task: DownloadTaskEntity): Boolean =
+        task.status == PAUSED && task.errorMessage == MSG_CHARGING
 }
 
 @Entity(tableName = "tasks")
@@ -65,6 +69,9 @@ interface TaskDao {
 
     @Query("SELECT * FROM tasks WHERE status = 'running'")
     suspend fun running(): List<DownloadTaskEntity>
+
+    @Query("SELECT * FROM tasks WHERE status = 'paused'")
+    suspend fun paused(): List<DownloadTaskEntity>
 }
 
 @Database(entities = [DownloadTaskEntity::class], version = 1, exportSchema = false)
@@ -101,6 +108,8 @@ class TaskRepository private constructor(context: Context) {
     suspend fun delete(task: DownloadTaskEntity) = dao.delete(task)
 
     suspend fun nextQueued() = dao.nextQueued()
+
+    suspend fun paused() = dao.paused()
 
     suspend fun recoverInterrupted() {
         dao.running().forEach { row ->

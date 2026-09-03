@@ -198,7 +198,7 @@ private fun TaskCard(task: DownloadTaskEntity, vm: AppViewModel) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            task.errorMessage?.takeIf { it != TaskStatus.MSG_HOTSPOT }?.let {
+            task.errorMessage?.takeIf { it != TaskStatus.MSG_HOTSPOT && it != TaskStatus.MSG_CHARGING }?.let {
                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -219,6 +219,7 @@ private fun TaskCard(task: DownloadTaskEntity, vm: AppViewModel) {
 
 private fun statusLabel(task: DownloadTaskEntity): String = when {
     TaskStatus.waitingHotspot(task) -> "等待确认热点"
+    TaskStatus.waitingCharge(task) -> "等待充电（插上后自动继续）"
     task.status == TaskStatus.QUEUED -> "排队中"
     task.status == TaskStatus.RUNNING -> "下载中"
     task.status == TaskStatus.PAUSED -> "已暂停"

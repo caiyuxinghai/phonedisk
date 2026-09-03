@@ -16,6 +16,7 @@ import java.util.concurrent.Executors
 class LanShareServer(
     private val root: File,
     val port: Int = 8765,
+    private val token: String? = null,
 ) {
     @Volatile
     private var server: ServerSocket? = null
@@ -63,14 +64,27 @@ class LanShareServer(
                 writeText(out, 405, "Method Not Allowed")
                 return
             }
-            val rawPath = parts[1].substringBefore('?')
+            val target = parts[1]
+            val rawPath = target.substringBefore('?')
+            val query = target.substringAfter('?', "")
             val path = try {
                 URLDecoder.decode(rawPath, "UTF-8")
             } catch (_: Exception) {
                 rawPath
             }
+            val provided = queryParam(query, "k") ?: cookieValue(headerText, "pd")
+            val authed = token.isNullOrBlank() || provided == token
+            if (!authed) {
+                writeText(out, 401, loginHtml(), "text/html; charset=utf-8")
+                return
+            }
+            val setCookie = if (!token.isNullOrBlank() && provided == token) {
+                "Set-Cookie: pd=$token; Path=/; HttpOnly\r\n"
+            } else {
+                ""
+            }
             when {
-                path == "/" || path.isEmpty() -> writeText(out, 200, indexHtml(), "text/html; charset=utf-8")
+                path == "/" || path.isEmpty() -> writeText(out, 200, indexHtml(), "text/html; charset=utf-8", setCookie)
                 path.startsWith("/f/") -> {
                     val name = path.removePrefix("/f/")
                     val file = File(root, name)
@@ -91,7 +105,7 @@ class LanShareServer(
                         writeText(out, 404, "Not Found")
                         return
                     }
-                    writeFile(out, canonical)
+                    writeFile(out, canonical, setCookie)
                 }
                 else -> writeText(out, 404, "Not Found")
             }
@@ -163,16 +177,51 @@ class LanShareServer(
         """.trimIndent()
     }
 
-    private fun writeText(out: OutputStream, code: Int, body: String, type: String = "text/plain; charset=utf-8") {
+    private fun loginHtml(): String = """
+        <!doctype html>
+        <html lang="zh-CN"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+        <title>随身下载盘</title>
+        <style>body{font-family:sans-serif;background:#121418;color:#eee;margin:24px}input,button{font-size:16px;padding:8px}button{background:#FFB74D;border:0;border-radius:8px}</style>
+        </head><body>
+        <h1>需要密码</h1>
+        <p>在手机 App「传到电脑」页能看到取文件密码。</p>
+        <form method="get" action="/"><input name="k" type="password" placeholder="密码" autofocus/> <button>进入</button></form>
+        </body></html>
+    """.trimIndent()
+
+    private fun queryParam(query: String, name: String): String? {
+        if (query.isBlank()) return null
+        return query.split('&').firstOrNull { it.startsWith("$name=") }?.substringAfter('=')?.let {
+            try { URLDecoder.decode(it, "UTF-8") } catch (_: Exception) { it }
+        }?.ifBlank { null }
+    }
+
+    private fun cookieValue(headers: String, name: String): String? {
+        val line = headers.lineSequence().firstOrNull { it.startsWith("Cookie:", true) } ?: return null
+        return line.removePrefix("Cookie:").removePrefix("cookie:").split(';')
+            .map { it.trim() }
+            .firstOrNull { it.startsWith("$name=") }
+            ?.substringAfter('=')
+    }
+
+    private fun writeText(
+        out: OutputStream,
+        code: Int,
+        body: String,
+        type: String = "text/plain; charset=utf-8",
+        extra: String = "",
+    ) {
         val bytes = body.toByteArray(StandardCharsets.UTF_8)
         val status = when (code) {
             200 -> "OK"
+            401 -> "Unauthorized"
             403 -> "Forbidden"
             404 -> "Not Found"
             405 -> "Method Not Allowed"
             else -> "Error"
         }
         val header = "HTTP/1.1 $code $status\r\n" +
+            extra +
             "Content-Type: $type\r\n" +
             "Content-Length: ${bytes.size}\r\n" +
             "Connection: close\r\n\r\n"
@@ -181,9 +230,10 @@ class LanShareServer(
         out.flush()
     }
 
-    private fun writeFile(out: OutputStream, file: File) {
+    private fun writeFile(out: OutputStream, file: File, extra: String = "") {
         val encoded = URLEncoder.encode(file.name, "UTF-8").replace("+", "%20")
         val header = "HTTP/1.1 200 OK\r\n" +
+            extra +
             "Content-Type: application/octet-stream\r\n" +
             "Content-Length: ${file.length()}\r\n" +
             "Content-Disposition: attachment; filename*=UTF-8''$encoded\r\n" +

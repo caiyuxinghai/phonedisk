@@ -36,4 +36,28 @@ object Prefs {
         if (value == HOTSPOT_ALWAYS) hotspotSessionAllowed = true
         if (value == HOTSPOT_NEVER) hotspotSessionAllowed = false
     }
+
+    fun chargingOnly(context: Context): Boolean = sp(context).getBoolean("chargingOnly", false)
+
+    fun setChargingOnly(context: Context, value: Boolean) {
+        sp(context).edit().putBoolean("chargingOnly", value).apply()
+    }
+
+    fun lanAuth(context: Context): Boolean = sp(context).getBoolean("lanAuth", true)
+
+    fun setLanAuth(context: Context, value: Boolean) {
+        sp(context).edit().putBoolean("lanAuth", value).apply()
+    }
+
+    fun lanToken(context: Context): String {
+        val existing = sp(context).getString("lanToken", null)
+        if (!existing.isNullOrBlank()) return existing
+        val gen = (100000..999999).random().toString()
+        sp(context).edit().putString("lanToken", gen).apply()
+        return gen
+    }
+
+    fun setLanToken(context: Context, value: String) {
+        sp(context).edit().putString("lanToken", value.filter { it.isLetterOrDigit() }.take(12)).apply()
+    }
 }

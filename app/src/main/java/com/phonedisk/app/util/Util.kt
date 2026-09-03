@@ -1,9 +1,12 @@
 package com.phonedisk.app.util
 
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
@@ -232,6 +235,14 @@ object Network {
         val caps = cm.getNetworkCapabilities(net) ?: return false
         return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
             caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+    }
+
+    fun isCharging(context: Context): Boolean {
+        val bm = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+        if (bm.isCharging) return true
+        val sticky = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val plugged = sticky?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0
+        return plugged != 0
     }
 
     fun isLikelyHotspot(context: Context): Boolean {

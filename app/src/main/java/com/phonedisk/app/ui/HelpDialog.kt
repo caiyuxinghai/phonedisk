@@ -39,7 +39,8 @@ fun HelpDialog(onDismiss: () -> Unit) {
                         "4. 除直链外，还可试：Google Drive / 文档、Dropbox、OneDrive、GitHub 文件、Hugging Face、MediaFire 公开分享。\n" +
                         "5. USB：手机选传输文件，电脑打开 Download/PhoneDisk 拷走。\n" +
                         "6. Wi-Fi：手机和电脑连同一 Wi-Fi，打开「传到电脑」里的局域网服务。电脑扫二维码或打开地址取文件。用完关掉。\n" +
-                        "7. 连手机热点时会先问你，避免把流量用爆。可在「传到电脑」里限速。",
+                        "7. 连手机热点时会先问你。可限速、仅充电时下载。网络抖动会自动重试几次。\n" +
+                        "8. 局域网取文件默认有密码，二维码里已带上。可在「传到电脑」里改。",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Text("注意事项", style = MaterialTheme.typography.titleMedium)

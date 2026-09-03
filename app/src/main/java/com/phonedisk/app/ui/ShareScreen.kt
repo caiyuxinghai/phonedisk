@@ -31,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -126,9 +127,26 @@ fun ShareScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                     vm.shareError?.let {
                         Text(it, color = MaterialTheme.colorScheme.error)
                     }
+                    androidx.compose.foundation.layout.Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text("取文件需要密码")
+                        Switch(checked = vm.lanAuth, onCheckedChange = { vm.updateLanAuth(it) })
+                    }
+                    if (vm.lanAuth) {
+                        OutlinedTextField(
+                            value = vm.lanToken,
+                            onValueChange = { vm.updateLanToken(it) },
+                            label = { Text("密码") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                        )
+                        Text("二维码已包含密码。改密码后请先关掉再打开局域网服务。", style = MaterialTheme.typography.bodySmall)
+                    }
                     if (vm.shareOn) {
                         Text(
-                            "电脑浏览器打开这个地址，点文件即可下载。只用在家里的 Wi‑Fi，不要开给公共网络。",
+                            "电脑浏览器打开这个地址或扫码。只用在家里的 Wi‑Fi，不要开给公共网络。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -153,6 +171,16 @@ fun ShareScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("长时间下载", style = MaterialTheme.typography.titleMedium)
+                    androidx.compose.foundation.layout.Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                            Text("仅充电时下载")
+                            Text("插上充电器后会自动继续。", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(checked = vm.chargingOnly, onCheckedChange = { vm.updateChargingOnly(it) })
+                    }
                     Text("大文件建议关掉电池优化，避免系统把下载杀掉。")
                     OutlinedButton(onClick = { requestIgnoreBattery(context) }) {
                         Text("允许忽略电池优化")

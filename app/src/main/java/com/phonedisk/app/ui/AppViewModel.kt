@@ -43,6 +43,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var incomingDraft by mutableStateOf<String?>(null)
     var speedLimitKBps by mutableStateOf(Prefs.speedLimitKBps(app))
+    var chargingOnly by mutableStateOf(Prefs.chargingOnly(app))
+    var lanAuth by mutableStateOf(Prefs.lanAuth(app))
+    var lanToken by mutableStateOf(Prefs.lanToken(app))
 
     private var server: LanShareServer? = null
 
@@ -169,6 +172,36 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         speedLimitKBps = kbps
     }
 
+    fun updateChargingOnly(value: Boolean) {
+        val app = getApplication<Application>()
+        Prefs.setChargingOnly(app, value)
+        chargingOnly = value
+        if (!value) {
+            viewModelScope.launch {
+                repo.paused().filter { TaskStatus.waitingCharge(it) }.forEach { row ->
+                    repo.update(row.copy(status = TaskStatus.QUEUED, errorMessage = null, speedBps = 0))
+                }
+                DownloadService.kick(app)
+            }
+        }
+    }
+
+    fun updateLanAuth(value: Boolean) {
+        Prefs.setLanAuth(getApplication(), value)
+        lanAuth = value
+        if (shareOn) {
+            stopShare()
+            startShare()
+        }
+    }
+
+    fun updateLanToken(value: String) {
+        val cleaned = value.filter { it.isLetterOrDigit() }.take(12)
+        if (cleaned.isBlank()) return
+        Prefs.setLanToken(getApplication(), cleaned)
+        lanToken = cleaned
+    }
+
     fun deleteCompleted() {
         viewModelScope.launch {
             tasks.value.filter { it.status == TaskStatus.COMPLETED }.forEach { task ->
@@ -222,11 +255,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         try {
-            val next = LanShareServer(saveFolder())
+            val token = if (Prefs.lanAuth(getApplication())) Prefs.lanToken(getApplication()) else null
+            val next = LanShareServer(saveFolder(), token = token)
             next.start()
             server = next
             shareOn = true
-            shareUrl = "http://$ip:${next.port}"
+            shareUrl = if (token.isNullOrBlank()) {
+                "http://$ip:${next.port}"
+            } else {
+                "http://$ip:${next.port}/?k=$token"
+            }
         } catch (e: Exception) {
             shareOn = false
             shareUrl = null

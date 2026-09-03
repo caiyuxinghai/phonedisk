@@ -5,8 +5,10 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
@@ -45,6 +47,14 @@ class DownloadService : Service() {
     private val currentId = AtomicLong(-1)
     private val loopRunning = AtomicBoolean(false)
     private var wakeLock: PowerManager.WakeLock? = null
+    @Volatile private var pauseReason: String? = null
+    private val powerReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == Intent.ACTION_POWER_CONNECTED) {
+                scope.launch { resumeChargingPaused() }
+            }
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -52,12 +62,19 @@ class DownloadService : Service() {
         super.onCreate()
         createChannel()
         startFg(placeholder("准备下载…"))
+        val filter = IntentFilter(Intent.ACTION_POWER_CONNECTED)
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(powerReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(powerReceiver, filter)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val id = intent?.getLongExtra(EXTRA_ID, -1) ?: -1
         when (intent?.action) {
             ACTION_PAUSE -> {
+                pauseReason = null
                 if (id == currentId.get()) pauseFlag.set(true)
                 else scope.launch { mark(id, TaskStatus.PAUSED, null) }
             }
@@ -77,6 +94,10 @@ class DownloadService : Service() {
         loopRunning.set(false)
         scope.cancel()
         releaseWakeLock()
+        try {
+            unregisterReceiver(powerReceiver)
+        } catch (_: Exception) {
+        }
         super.onDestroy()
     }
 
@@ -93,6 +114,18 @@ class DownloadService : Service() {
                 currentId.set(task.id)
                 pauseFlag.set(false)
                 cancelFlag.set(false)
+                pauseReason = null
+
+                if (Prefs.chargingOnly(this) && !Network.isCharging(this)) {
+                    repo.update(
+                        task.copy(
+                            status = TaskStatus.PAUSED,
+                            errorMessage = TaskStatus.MSG_CHARGING,
+                            speedBps = 0,
+                        ),
+                    )
+                    continue
+                }
 
                 if (task.wifiOnly && !Network.isMeteredOk(this)) {
                     repo.update(
@@ -179,6 +212,10 @@ class DownloadService : Service() {
                     var lastUi = 0L
                     val sink: (com.phonedisk.app.download.DownloadEngine.Progress) -> Unit = { p ->
                         if (!p.fileName.isNullOrBlank()) lastName = p.fileName
+                        if (Prefs.chargingOnly(this) && !Network.isCharging(this)) {
+                            pauseReason = TaskStatus.MSG_CHARGING
+                            pauseFlag.set(true)
+                        }
                         val now = System.currentTimeMillis()
                         if (now - lastUi >= 1000L) {
                             lastUi = now
@@ -196,38 +233,55 @@ class DownloadService : Service() {
                             startFg(progressNotification(task.fileName, p.downloaded, p.total, p.speedBps))
                         }
                     }
-                    try {
-                        engine.download(
-                            url = resolved.url,
-                            finalFile = dest,
-                            pauseFlag = pauseFlag,
-                            cancelFlag = cancelFlag,
-                            referer = resolved.referer,
-                            speedLimitBps = { Prefs.speedLimitBps(this) },
-                            onProgress = sink,
-                        )
-                    } catch (html: HtmlPageException) {
-                        AppLog.i("task ${task.id} html from ${html.pageUrl.take(120)}")
-                        val next = LinkResolver.fromHtml(html.pageUrl, html.html)
-                            ?: throw IllegalStateException("这不是可下载的文件。分享页若未公开，或需要登录，就无法下。")
-                        AppLog.i("task ${task.id} html extract -> ${next.url.take(120)}")
-                        val probed2 = engine.probeSize(next.url, next.referer ?: html.pageUrl)
-                        if (probed2 > 0) {
-                            val stillNeed = (probed2 - FileNames.partFile(dest).length().coerceAtLeast(0)).coerceAtLeast(0)
-                            val avail = Storage.availableBytes(dest.parentFile ?: dest)
-                            if (!Storage.hasSpace(dest.parentFile ?: dest, stillNeed)) {
-                                throw IllegalStateException(Storage.notEnoughMessage(probed2, stillNeed, avail))
+                    var attempt = 0
+                    while (true) {
+                        try {
+                            try {
+                                engine.download(
+                                    url = resolved.url,
+                                    finalFile = dest,
+                                    pauseFlag = pauseFlag,
+                                    cancelFlag = cancelFlag,
+                                    referer = resolved.referer,
+                                    speedLimitBps = { Prefs.speedLimitBps(this) },
+                                    onProgress = sink,
+                                )
+                            } catch (html: HtmlPageException) {
+                                AppLog.i("task ${task.id} html from ${html.pageUrl.take(120)}")
+                                val next = LinkResolver.fromHtml(html.pageUrl, html.html)
+                                    ?: throw IllegalStateException("这不是可下载的文件。分享页若未公开，或需要登录，就无法下。")
+                                AppLog.i("task ${task.id} html extract -> ${next.url.take(120)}")
+                                val probed2 = engine.probeSize(next.url, next.referer ?: html.pageUrl)
+                                if (probed2 > 0) {
+                                    val stillNeed = (probed2 - FileNames.partFile(dest).length().coerceAtLeast(0)).coerceAtLeast(0)
+                                    val avail = Storage.availableBytes(dest.parentFile ?: dest)
+                                    if (!Storage.hasSpace(dest.parentFile ?: dest, stillNeed)) {
+                                        throw IllegalStateException(Storage.notEnoughMessage(probed2, stillNeed, avail))
+                                    }
+                                }
+                                engine.download(
+                                    url = next.url,
+                                    finalFile = dest,
+                                    pauseFlag = pauseFlag,
+                                    cancelFlag = cancelFlag,
+                                    referer = next.referer ?: html.pageUrl,
+                                    speedLimitBps = { Prefs.speedLimitBps(this) },
+                                    onProgress = sink,
+                                )
                             }
+                            break
+                        } catch (e: DownloadEngine.Paused) {
+                            throw e
+                        } catch (e: DownloadEngine.Canceled) {
+                            throw e
+                        } catch (e: DownloadEngine.NoSpace) {
+                            throw e
+                        } catch (e: Exception) {
+                            if (!retryable(e) || attempt >= 3) throw e
+                            attempt++
+                            AppLog.i("task ${task.id} retry $attempt: ${e.message}")
+                            delay(2000L * attempt)
                         }
-                        engine.download(
-                            url = next.url,
-                            finalFile = dest,
-                            pauseFlag = pauseFlag,
-                            cancelFlag = cancelFlag,
-                            referer = next.referer ?: html.pageUrl,
-                            speedLimitBps = { Prefs.speedLimitBps(this) },
-                            onProgress = sink,
-                        )
                     }
                     val done = repo.get(task.id)
                     if (done != null) {
@@ -254,7 +308,14 @@ class DownloadService : Service() {
                     }
                 } catch (_: DownloadEngine.Paused) {
                     val latest = repo.get(task.id) ?: continue
-                    repo.update(latest.copy(status = TaskStatus.PAUSED, speedBps = 0))
+                    repo.update(
+                        latest.copy(
+                            status = TaskStatus.PAUSED,
+                            speedBps = 0,
+                            errorMessage = pauseReason,
+                        ),
+                    )
+                    pauseReason = null
                 } catch (_: DownloadEngine.Canceled) {
                     cancelStored(task.id)
                 } catch (_: DownloadEngine.NoSpace) {
@@ -298,6 +359,30 @@ class DownloadService : Service() {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
+    }
+
+    private suspend fun resumeChargingPaused() {
+        val repo = TaskRepository.get(this)
+        val waiting = repo.paused().filter { TaskStatus.waitingCharge(it) }
+        if (waiting.isEmpty()) return
+        waiting.forEach { row ->
+            repo.update(row.copy(status = TaskStatus.QUEUED, errorMessage = null, speedBps = 0))
+        }
+        AppLog.i("charger connected, resumed ${waiting.size} task(s)")
+        kick(this)
+    }
+
+    private fun retryable(e: Exception): Boolean {
+        if (Storage.isNoSpace(e)) return false
+        val msg = e.message.orEmpty()
+        if (msg.contains("空间")) return false
+        if (msg.contains("网页而不是文件")) return false
+        if (msg.contains("HTTP 401") || msg.contains("HTTP 403") || msg.contains("HTTP 404") ||
+            msg.contains("HTTP 410") || msg.contains("HTTP 416")
+        ) {
+            return false
+        }
+        return true
     }
 
     private suspend fun mark(id: Long, status: String, error: String?) {
