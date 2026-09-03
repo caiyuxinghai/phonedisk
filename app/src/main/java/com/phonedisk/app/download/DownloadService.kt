@@ -23,6 +23,7 @@ import com.phonedisk.app.util.Format
 import com.phonedisk.app.util.HtmlPageException
 import com.phonedisk.app.util.LinkResolver
 import com.phonedisk.app.util.Network
+import com.phonedisk.app.util.Prefs
 import com.phonedisk.app.util.Storage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -104,6 +105,36 @@ class DownloadService : Service() {
                     continue
                 }
 
+                if (Network.isLikelyHotspot(this)) {
+                    when (Prefs.hotspotPolicy(this)) {
+                        Prefs.HOTSPOT_NEVER -> {
+                            repo.update(
+                                task.copy(
+                                    status = TaskStatus.PAUSED,
+                                    errorMessage = "已禁止在手机热点上下载。连上普通 Wi‑Fi 后点继续。",
+                                    speedBps = 0,
+                                ),
+                            )
+                            continue
+                        }
+                        Prefs.HOTSPOT_ALWAYS, Prefs.HOTSPOT_ASK -> {
+                            if (Prefs.hotspotPolicy(this) == Prefs.HOTSPOT_ALWAYS || Prefs.hotspotSessionAllowed) {
+                                // proceed
+                            } else {
+                                repo.update(
+                                    task.copy(
+                                        status = TaskStatus.PAUSED,
+                                        errorMessage = TaskStatus.MSG_HOTSPOT,
+                                        speedBps = 0,
+                                    ),
+                                )
+                                notifyHotspot()
+                                continue
+                            }
+                        }
+                    }
+                }
+
                 val dest = File(task.filePath)
                 dest.parentFile?.mkdirs()
                 acquireWakeLock()
@@ -172,6 +203,7 @@ class DownloadService : Service() {
                             pauseFlag = pauseFlag,
                             cancelFlag = cancelFlag,
                             referer = resolved.referer,
+                            speedLimitBps = { Prefs.speedLimitBps(this) },
                             onProgress = sink,
                         )
                     } catch (html: HtmlPageException) {
@@ -193,6 +225,7 @@ class DownloadService : Service() {
                             pauseFlag = pauseFlag,
                             cancelFlag = cancelFlag,
                             referer = next.referer ?: html.pageUrl,
+                            speedLimitBps = { Prefs.speedLimitBps(this) },
                             onProgress = sink,
                         )
                     }
@@ -217,6 +250,7 @@ class DownloadService : Service() {
                                 completedAt = System.currentTimeMillis(),
                             ),
                         )
+                        notifyDone(task.id, finalPath.name, size)
                     }
                 } catch (_: DownloadEngine.Paused) {
                     val latest = repo.get(task.id) ?: continue
@@ -304,7 +338,32 @@ class DownloadService : Service() {
             nm.createNotificationChannel(
                 NotificationChannel(CHANNEL, "下载进度", NotificationManager.IMPORTANCE_LOW),
             )
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_ALERT, "完成与提醒", NotificationManager.IMPORTANCE_DEFAULT),
+            )
         }
+    }
+
+    private fun notifyDone(id: Long, name: String, size: Long) {
+        val n = NotificationCompat.Builder(this, CHANNEL_ALERT)
+            .setSmallIcon(R.drawable.ic_stat_download)
+            .setContentTitle("下载完成")
+            .setContentText("$name · ${Format.bytes(size)}")
+            .setAutoCancel(true)
+            .setContentIntent(openApp())
+            .build()
+        getSystemService(NotificationManager::class.java).notify((10000 + (id % 10000)).toInt(), n)
+    }
+
+    private fun notifyHotspot() {
+        val n = NotificationCompat.Builder(this, CHANNEL_ALERT)
+            .setSmallIcon(R.drawable.ic_stat_download)
+            .setContentTitle("正在使用手机热点")
+            .setContentText("继续下载会消耗大量流量，点开 App 确认是否继续。")
+            .setAutoCancel(true)
+            .setContentIntent(openApp())
+            .build()
+        getSystemService(NotificationManager::class.java).notify(NOTIF_HOTSPOT, n)
     }
 
     private fun startFg(notification: Notification) {
@@ -375,7 +434,9 @@ class DownloadService : Service() {
         const val ACTION_CANCEL = "cancel"
         const val EXTRA_ID = "id"
         private const val CHANNEL = "downloads"
+        private const val CHANNEL_ALERT = "alerts"
         private const val NOTIF_ID = 41
+        private const val NOTIF_HOTSPOT = 42
 
         fun kick(context: Context) {
             val intent = Intent(context, DownloadService::class.java).setAction(ACTION_KICK)

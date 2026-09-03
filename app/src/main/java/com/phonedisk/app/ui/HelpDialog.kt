@@ -38,7 +38,8 @@ fun HelpDialog(onDismiss: () -> Unit) {
                         "3. 点右下角 + 粘贴链接，可一次多条。浏览器里也可「分享到 随身下载盘」。建议勾选仅 Wi-Fi。\n" +
                         "4. 除直链外，还可试：Google Drive / 文档、Dropbox、OneDrive、GitHub 文件、Hugging Face、MediaFire 公开分享。\n" +
                         "5. USB：手机选传输文件，电脑打开 Download/PhoneDisk 拷走。\n" +
-                        "6. Wi-Fi：手机和电脑连同一 Wi-Fi，打开「传到电脑」里的局域网服务，用电脑浏览器打开屏幕上的地址。用完关掉。",
+                        "6. Wi-Fi：手机和电脑连同一 Wi-Fi，打开「传到电脑」里的局域网服务。电脑扫二维码或打开地址取文件。用完关掉。\n" +
+                        "7. 连手机热点时会先问你，避免把流量用爆。可在「传到电脑」里限速。",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Text("注意事项", style = MaterialTheme.typography.titleMedium)

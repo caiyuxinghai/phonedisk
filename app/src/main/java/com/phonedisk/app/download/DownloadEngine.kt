@@ -73,6 +73,7 @@ class DownloadEngine {
         pauseFlag: AtomicBoolean,
         cancelFlag: AtomicBoolean,
         referer: String? = null,
+        speedLimitBps: () -> Long = { 0L },
         onProgress: (Progress) -> Unit,
     ) {
         finalFile.parentFile?.mkdirs()
@@ -141,6 +142,8 @@ class DownloadEngine {
                     var lastSpaceCheck = downloaded
                     var ema = 0.0
                     val spaceDir = part.parentFile ?: finalFile.parentFile
+                    val throttleOrigin = System.nanoTime()
+                    val throttleBase = downloaded
                     while (true) {
                         if (cancelFlag.get()) {
                             call.cancel()
@@ -169,6 +172,20 @@ class DownloadEngine {
                         }
                         downloaded += n
                         windowBytes += n
+                        val limit = speedLimitBps()
+                        if (limit > 0) {
+                            val elapsed = (System.nanoTime() - throttleOrigin) / 1_000_000_000.0
+                            val allowed = limit * elapsed
+                            val sent = (downloaded - throttleBase).toDouble()
+                            if (sent > allowed) {
+                                val sleepMs = ((sent - allowed) * 1000.0 / limit).toLong().coerceIn(1L, 1500L)
+                                try {
+                                    Thread.sleep(sleepMs)
+                                } catch (_: InterruptedException) {
+                                    throw Canceled()
+                                }
+                            }
+                        }
                         if (spaceDir != null && downloaded - lastSpaceCheck >= 8L * 1024 * 1024) {
                             val left = Storage.availableBytes(spaceDir)
                             if (left in 0 until 32L * 1024 * 1024) throw NoSpace()

@@ -13,8 +13,8 @@ android {
         applicationId = "com.phonedisk.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "1.2.0"
+        versionCode = 7
+        versionName = "1.3.0"
     }
 
     buildTypes {
@@ -64,6 +64,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-service:2.8.7")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.google.zxing:core:3.5.3")
 
     val room = "2.6.1"
     implementation("androidx.room:room-runtime:$room")

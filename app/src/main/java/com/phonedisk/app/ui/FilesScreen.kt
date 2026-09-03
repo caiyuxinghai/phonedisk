@@ -79,6 +79,10 @@ fun FilesScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                 item {
                     Text("下完的文件会出现在这里，也可以用 USB 从电脑里拷走。")
                 }
+            } else {
+                item {
+                    OutlinedButton(onClick = { vm.deleteCompleted() }) { Text("清空已完成（同时删文件）") }
+                }
             }
             items(files, key = { it.id }) { task ->
                 val exists = File(task.filePath).isFile

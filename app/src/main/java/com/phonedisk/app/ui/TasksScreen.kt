@@ -198,7 +198,7 @@ private fun TaskCard(task: DownloadTaskEntity, vm: AppViewModel) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            task.errorMessage?.let {
+            task.errorMessage?.takeIf { it != TaskStatus.MSG_HOTSPOT }?.let {
                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -217,12 +217,13 @@ private fun TaskCard(task: DownloadTaskEntity, vm: AppViewModel) {
     }
 }
 
-private fun statusLabel(task: DownloadTaskEntity): String = when (task.status) {
-    TaskStatus.QUEUED -> "排队中"
-    TaskStatus.RUNNING -> "下载中"
-    TaskStatus.PAUSED -> "已暂停"
-    TaskStatus.FAILED -> "失败"
-    TaskStatus.CANCELED -> "已取消"
+private fun statusLabel(task: DownloadTaskEntity): String = when {
+    TaskStatus.waitingHotspot(task) -> "等待确认热点"
+    task.status == TaskStatus.QUEUED -> "排队中"
+    task.status == TaskStatus.RUNNING -> "下载中"
+    task.status == TaskStatus.PAUSED -> "已暂停"
+    task.status == TaskStatus.FAILED -> "失败"
+    task.status == TaskStatus.CANCELED -> "已取消"
     else -> task.status
 }
 

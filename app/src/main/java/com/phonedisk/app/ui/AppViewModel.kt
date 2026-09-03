@@ -19,6 +19,7 @@ import com.phonedisk.app.util.Format
 import com.phonedisk.app.util.LinkGuard
 import com.phonedisk.app.util.LinkResolver
 import com.phonedisk.app.util.Network
+import com.phonedisk.app.util.Prefs
 import com.phonedisk.app.util.Storage
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
@@ -41,6 +42,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var shareError by mutableStateOf<String?>(null)
         private set
     var incomingDraft by mutableStateOf<String?>(null)
+    var speedLimitKBps by mutableStateOf(Prefs.speedLimitKBps(app))
 
     private var server: LanShareServer? = null
 
@@ -127,7 +129,55 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun cancel(id: Long) = DownloadService.cancel(getApplication(), id)
 
-    fun retry(id: Long) = DownloadService.resume(getApplication(), id)
+    fun retry(id: Long) {
+        viewModelScope.launch {
+            val row = repo.get(id)
+            if (row != null && TaskStatus.waitingHotspot(row)) {
+                Prefs.hotspotSessionAllowed = true
+            }
+            DownloadService.resume(getApplication(), id)
+        }
+    }
+
+    fun confirmHotspot(always: Boolean = false) {
+        val app = getApplication<Application>()
+        if (always) Prefs.setHotspotPolicy(app, Prefs.HOTSPOT_ALWAYS)
+        Prefs.hotspotSessionAllowed = true
+        viewModelScope.launch {
+            tasks.value.filter { TaskStatus.waitingHotspot(it) }.forEach { row ->
+                repo.update(row.copy(status = TaskStatus.QUEUED, errorMessage = null, speedBps = 0))
+            }
+            DownloadService.kick(app)
+        }
+    }
+
+    fun denyHotspot() {
+        viewModelScope.launch {
+            tasks.value.filter { TaskStatus.waitingHotspot(it) }.forEach { row ->
+                repo.update(
+                    row.copy(
+                        errorMessage = "因手机热点已暂停，避免消耗流量。连上普通 Wi‑Fi 后点继续。",
+                        speedBps = 0,
+                    ),
+                )
+            }
+        }
+    }
+
+    fun setSpeedLimit(kbps: Int) {
+        Prefs.setSpeedLimitKBps(getApplication(), kbps)
+        speedLimitKBps = kbps
+    }
+
+    fun deleteCompleted() {
+        viewModelScope.launch {
+            tasks.value.filter { it.status == TaskStatus.COMPLETED }.forEach { task ->
+                FileNames.partFile(File(task.filePath)).delete()
+                File(task.filePath).delete()
+                repo.delete(task)
+            }
+        }
+    }
 
     fun deleteTask(task: DownloadTaskEntity) {
         viewModelScope.launch {

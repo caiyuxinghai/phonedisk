@@ -3,6 +3,7 @@ package com.phonedisk.app.util
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
@@ -231,6 +232,41 @@ object Network {
         val caps = cm.getNetworkCapabilities(net) ?: return false
         return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
             caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+    }
+
+    fun isLikelyHotspot(context: Context): Boolean {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val net = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(net) ?: return false
+        if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return false
+        if (cm.isActiveNetworkMetered) return true
+        if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)) return true
+        val gateways = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= 29) {
+            val lp = cm.getLinkProperties(net)
+            lp?.routes?.forEach { route ->
+                if (route.isDefaultRoute) {
+                    route.gateway?.hostAddress?.let { gateways += it.substringBefore('%') }
+                }
+            }
+        } else {
+            val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            @Suppress("DEPRECATION")
+            val g = wm.dhcpInfo?.gateway ?: 0
+            if (g != 0) {
+                gateways += "${g and 0xff}.${g shr 8 and 0xff}.${g shr 16 and 0xff}.${g shr 24 and 0xff}"
+            }
+        }
+        return gateways.any { ip ->
+            ip.startsWith("192.168.43.") ||
+                ip.startsWith("172.20.10.") ||
+                ip.startsWith("192.168.137.") ||
+                ip.startsWith("192.168.42.") ||
+                ip.startsWith("192.168.75.") ||
+                ip.startsWith("192.168.44.") ||
+                ip.startsWith("192.168.49.") ||
+                ip.startsWith("192.168.107.")
+        }
     }
 
     fun localIpv4(): String? {

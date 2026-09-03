@@ -8,19 +8,24 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -36,10 +41,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.phonedisk.app.share.qrImage
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ShareScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -99,6 +106,18 @@ fun ShareScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                     }
                     vm.shareUrl?.let { url ->
                         Text(url, style = MaterialTheme.typography.titleMedium)
+                        val qr = remember(url) { qrImage(url) }
+                        qr?.let {
+                            Image(
+                                bitmap = it,
+                                contentDescription = "扫码取文件",
+                                modifier = Modifier
+                                    .size(200.dp)
+                                    .padding(top = 8.dp),
+                                contentScale = ContentScale.Fit,
+                            )
+                            Text("电脑浏览器扫这个码即可打开文件列表", style = MaterialTheme.typography.bodySmall)
+                        }
                         Button(onClick = {
                             val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             cm.setPrimaryClip(ClipData.newPlainText("url", url))
@@ -113,6 +132,21 @@ fun ShareScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                    }
+                }
+            }
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("下载限速", style = MaterialTheme.typography.titleMedium)
+                    Text("避免把宿舍网或热点占满。改完对正在下的任务也会逐渐生效。")
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(0 to "不限速", 512 to "512 KB/s", 1024 to "1 MB/s", 2048 to "2 MB/s", 5120 to "5 MB/s").forEach { (kbps, label) ->
+                            FilterChip(
+                                selected = vm.speedLimitKBps == kbps,
+                                onClick = { vm.setSpeedLimit(kbps) },
+                                label = { Text(label) },
+                            )
+                        }
                     }
                 }
             }

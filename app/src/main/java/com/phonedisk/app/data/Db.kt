@@ -20,6 +20,10 @@ object TaskStatus {
     const val COMPLETED = "completed"
     const val FAILED = "failed"
     const val CANCELED = "canceled"
+    const val MSG_HOTSPOT = "HOTSPOT_CONFIRM"
+
+    fun waitingHotspot(task: DownloadTaskEntity): Boolean =
+        task.status == PAUSED && task.errorMessage == MSG_HOTSPOT
 }
 
 @Entity(tableName = "tasks")
