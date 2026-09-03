@@ -18,6 +18,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.HelpOutline
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -54,11 +56,21 @@ fun TasksScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
     val tasks by vm.tasks.collectAsState()
     val context = LocalContext.current
     var showAdd by remember { mutableStateOf(false) }
+    var showHelp by remember { mutableStateOf(false) }
     val active = tasks.filter { it.status != TaskStatus.COMPLETED }
 
     Scaffold(
         modifier = modifier,
-        topBar = { TopAppBar(title = { Text("任务") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("任务") },
+                actions = {
+                    IconButton(onClick = { showHelp = true }) {
+                        Icon(Icons.Outlined.HelpOutline, contentDescription = "使用说明")
+                    }
+                },
+            )
+        },
         floatingActionButton = {
             FloatingActionButton(onClick = { showAdd = true }) {
                 Icon(Icons.Outlined.Add, contentDescription = "添加下载")
@@ -97,6 +109,10 @@ fun TasksScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
             }
             item { Spacer(Modifier.height(72.dp)) }
         }
+    }
+
+    if (showHelp) {
+        HelpDialog(onDismiss = { showHelp = false })
     }
 
     if (showAdd) {

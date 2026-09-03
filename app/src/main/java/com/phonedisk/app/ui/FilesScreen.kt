@@ -11,8 +11,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -21,6 +25,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -38,10 +45,20 @@ fun FilesScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
     val files = tasks.filter { it.status == TaskStatus.COMPLETED }
     val context = LocalContext.current
     val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+    var showHelp by remember { mutableStateOf(false) }
 
     Scaffold(
         modifier = modifier,
-        topBar = { TopAppBar(title = { Text("文件") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("文件") },
+                actions = {
+                    IconButton(onClick = { showHelp = true }) {
+                        Icon(Icons.Outlined.HelpOutline, contentDescription = "使用说明")
+                    }
+                },
+            )
+        },
     ) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -89,5 +106,9 @@ fun FilesScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
             }
             item { Spacer(Modifier.height(24.dp)) }
         }
+    }
+
+    if (showHelp) {
+        HelpDialog(onDismiss = { showHelp = false })
     }
 }
