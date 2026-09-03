@@ -107,8 +107,35 @@ class DownloadService : Service() {
             while (scope.isActive) {
                 val task = repo.nextQueued()
                 if (task == null) {
-                    delay(400)
-                    if (repo.nextQueued() == null) break
+                    val paused = repo.paused()
+                    val chargeWait = paused.filter { TaskStatus.waitingCharge(it) }
+                    val wifiWait = paused.filter { it.errorMessage?.contains("不是 Wi‑Fi") == true }
+                    when {
+                        chargeWait.isNotEmpty() -> {
+                            startFg(placeholder("等待充电后继续下载…"))
+                            delay(8000)
+                            if (Network.isCharging(this) || !Prefs.chargingOnly(this)) {
+                                chargeWait.forEach { row ->
+                                    repo.update(row.copy(status = TaskStatus.QUEUED, errorMessage = null, speedBps = 0))
+                                }
+                                AppLog.i("requeued ${chargeWait.size} charging-wait task(s)")
+                            }
+                        }
+                        wifiWait.isNotEmpty() -> {
+                            startFg(placeholder("等待 Wi‑Fi…"))
+                            delay(8000)
+                            if (Network.isMeteredOk(this)) {
+                                wifiWait.forEach { row ->
+                                    repo.update(row.copy(status = TaskStatus.QUEUED, errorMessage = null, speedBps = 0))
+                                }
+                                AppLog.i("requeued ${wifiWait.size} wifi-wait task(s)")
+                            }
+                        }
+                        else -> {
+                            delay(400)
+                            if (repo.nextQueued() == null) break
+                        }
+                    }
                     continue
                 }
                 currentId.set(task.id)
@@ -376,7 +403,7 @@ class DownloadService : Service() {
         if (Storage.isNoSpace(e)) return false
         val msg = e.message.orEmpty()
         if (msg.contains("空间")) return false
-        if (msg.contains("网页而不是文件")) return false
+        if (msg.contains("网页而不是文件") || msg.contains("这不是可下载的文件") || msg.contains("链接无法解析")) return false
         if (msg.contains("HTTP 401") || msg.contains("HTTP 403") || msg.contains("HTTP 404") ||
             msg.contains("HTTP 410") || msg.contains("HTTP 416")
         ) {

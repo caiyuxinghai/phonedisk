@@ -20,13 +20,16 @@ class LanShareServer(
 ) {
     @Volatile
     private var server: ServerSocket? = null
-    private val pool = Executors.newCachedThreadPool()
+    private var pool = Executors.newCachedThreadPool()
 
     val running: Boolean
         get() = server?.isClosed == false
 
     fun start() {
         if (running) return
+        if (pool.isShutdown || pool.isTerminated) {
+            pool = Executors.newCachedThreadPool()
+        }
         val ss = ServerSocket()
         ss.reuseAddress = true
         ss.bind(InetSocketAddress(port))
@@ -51,6 +54,7 @@ class LanShareServer(
         } catch (_: Exception) {
         }
         server = null
+        pool.shutdownNow()
     }
 
     private fun handle(socket: Socket) {
@@ -147,7 +151,8 @@ class LanShareServer(
             buildString {
                 append("<ul>")
                 for (f in files) {
-                    val href = "/f/" + URLEncoder.encode(f.name, "UTF-8").replace("+", "%20")
+                    val q = if (token.isNullOrBlank()) "" else "?k=" + URLEncoder.encode(token, "UTF-8")
+                    val href = "/f/" + URLEncoder.encode(f.name, "UTF-8").replace("+", "%20") + q
                     val size = human(f.length())
                     append("<li><a href=\"$href\">${escape(f.name)}</a> <span>${escape(size)}</span></li>")
                 }

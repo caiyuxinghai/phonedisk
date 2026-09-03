@@ -2,6 +2,7 @@ package com.phonedisk.app
 
 import android.app.Application
 import com.phonedisk.app.data.TaskRepository
+import com.phonedisk.app.download.DownloadResumer
 import com.phonedisk.app.download.DownloadService
 import com.phonedisk.app.util.AppLog
 import kotlinx.coroutines.CoroutineScope
@@ -17,6 +18,7 @@ class PhoneDiskApp : Application() {
         appScope.launch {
             val repo = TaskRepository.get(this@PhoneDiskApp)
             repo.recoverInterrupted()
+            DownloadResumer.requeueIfReady(this@PhoneDiskApp)
             if (repo.nextQueued() != null) {
                 try {
                     DownloadService.kick(this@PhoneDiskApp)
