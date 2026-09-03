@@ -105,19 +105,6 @@ class DownloadService : Service() {
 
                 val dest = File(task.filePath)
                 dest.parentFile?.mkdirs()
-                if (task.totalBytes > 0 && !Storage.hasSpace(dest.parentFile ?: dest, task.totalBytes - task.downloadedBytes)) {
-                    repo.update(
-                        task.copy(
-                            status = TaskStatus.FAILED,
-                            errorMessage = "手机存储空间不足。",
-                            speedBps = 0,
-                        ),
-                    )
-                    continue
-                }
-
-                repo.update(task.copy(status = TaskStatus.RUNNING, errorMessage = null, speedBps = 0))
-                startFg(progressNotification(task.fileName, task.downloadedBytes, task.totalBytes, 0))
                 acquireWakeLock()
                 try {
                     val resolved = try {
@@ -125,6 +112,33 @@ class DownloadService : Service() {
                     } catch (e: Exception) {
                         throw IllegalStateException(e.message ?: "链接无法解析")
                     }
+                    val part = FileNames.partFile(dest)
+                    val probed = engine.probeSize(resolved.url, resolved.referer)
+                    val knownSize = if (probed > 0) probed else task.totalBytes
+                    if (knownSize > 0) {
+                        val stillNeed = (knownSize - part.length().coerceAtLeast(0)).coerceAtLeast(0)
+                        val avail = Storage.availableBytes(dest.parentFile ?: dest)
+                        if (!Storage.hasSpace(dest.parentFile ?: dest, stillNeed)) {
+                            repo.update(
+                                task.copy(
+                                    status = TaskStatus.FAILED,
+                                    totalBytes = knownSize,
+                                    errorMessage = Storage.notEnoughMessage(knownSize, stillNeed, avail),
+                                    speedBps = 0,
+                                ),
+                            )
+                            continue
+                        }
+                    }
+                    repo.update(
+                        task.copy(
+                            status = TaskStatus.RUNNING,
+                            totalBytes = if (knownSize > 0) knownSize else task.totalBytes,
+                            errorMessage = null,
+                            speedBps = 0,
+                        ),
+                    )
+                    startFg(progressNotification(task.fileName, task.downloadedBytes, if (knownSize > 0) knownSize else task.totalBytes, 0))
                     var lastName: String? = null
                     val sink: (com.phonedisk.app.download.DownloadEngine.Progress) -> Unit = { p ->
                         if (!p.fileName.isNullOrBlank()) lastName = p.fileName
@@ -189,15 +203,36 @@ class DownloadService : Service() {
                     repo.update(latest.copy(status = TaskStatus.PAUSED, speedBps = 0))
                 } catch (_: DownloadEngine.Canceled) {
                     cancelStored(task.id)
-                } catch (e: Exception) {
+                } catch (_: DownloadEngine.NoSpace) {
                     val latest = repo.get(task.id) ?: continue
+                    val avail = Storage.availableBytes(dest.parentFile ?: dest)
                     repo.update(
                         latest.copy(
-                            status = TaskStatus.FAILED,
+                            status = TaskStatus.PAUSED,
                             speedBps = 0,
-                            errorMessage = e.message ?: "下载失败",
+                            errorMessage = "下载中途空间写满，手机只剩 ${Format.bytes(avail)}。清理或拷走文件后点继续。",
                         ),
                     )
+                } catch (e: Exception) {
+                    val latest = repo.get(task.id) ?: continue
+                    if (Storage.isNoSpace(e)) {
+                        val avail = Storage.availableBytes(dest.parentFile ?: dest)
+                        repo.update(
+                            latest.copy(
+                                status = TaskStatus.PAUSED,
+                                speedBps = 0,
+                                errorMessage = "下载中途空间写满，手机只剩 ${Format.bytes(avail)}。清理或拷走文件后点继续。",
+                            ),
+                        )
+                    } else {
+                        repo.update(
+                            latest.copy(
+                                status = TaskStatus.FAILED,
+                                speedBps = 0,
+                                errorMessage = e.message ?: "下载失败",
+                            ),
+                        )
+                    }
                 } finally {
                     releaseWakeLock()
                     currentId.set(-1)

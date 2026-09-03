@@ -67,6 +67,7 @@ fun FilesScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            item { SpaceBanner(vm.saveFolder()) }
             item {
                 Text(
                     "保存位置：${vm.saveFolder().absolutePath}",

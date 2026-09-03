@@ -4,10 +4,13 @@ import com.phonedisk.app.util.FileNames
 import com.phonedisk.app.util.HtmlPageException
 import com.phonedisk.app.util.HttpClients
 import com.phonedisk.app.util.LinkResolver
+import com.phonedisk.app.util.Storage
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
+import java.io.IOException
 import java.io.RandomAccessFile
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 class DownloadEngine {
@@ -22,6 +25,39 @@ class DownloadEngine {
 
     class Canceled : Exception("canceled")
     class Paused : Exception("paused")
+    class NoSpace : Exception("空间写满")
+
+    fun probeSize(url: String, referer: String?): Long {
+        fun request(builder: Request.Builder): Request {
+            builder.header("User-Agent", LinkResolver.UA).header("Accept", "*/*")
+            if (!referer.isNullOrBlank()) builder.header("Referer", referer)
+            return builder.build()
+        }
+        val headClient = client.newBuilder().readTimeout(20, TimeUnit.SECONDS).build()
+        try {
+            headClient.newCall(request(Request.Builder().url(url).head())).execute().use { resp ->
+                val len = resp.header("Content-Length")?.toLongOrNull() ?: -1L
+                if (len > 0) return len
+                parseContentRange(resp.header("Content-Range"))?.let { return it }
+            }
+        } catch (_: Exception) {
+        }
+        try {
+            headClient.newCall(request(Request.Builder().url(url).header("Range", "bytes=0-0"))).execute().use { resp ->
+                parseContentRange(resp.header("Content-Range"))?.let { return it }
+                val len = resp.header("Content-Length")?.toLongOrNull() ?: -1L
+                if (len > 1) return len
+            }
+        } catch (_: Exception) {
+        }
+        return -1L
+    }
+
+    private fun parseContentRange(header: String?): Long? {
+        if (header.isNullOrBlank()) return null
+        val match = Regex("/(\\d+)\\s*$").find(header) ?: return null
+        return match.groupValues[1].toLongOrNull()?.takeIf { it > 0 }
+    }
 
     fun download(
         url: String,
@@ -95,6 +131,8 @@ class DownloadEngine {
                     var windowBytes = 0L
                     var windowStart = System.nanoTime()
                     var lastEmit = 0L
+                    var lastSpaceCheck = downloaded
+                    val spaceDir = part.parentFile ?: finalFile.parentFile
                     while (true) {
                         if (cancelFlag.get()) {
                             call.cancel()
@@ -104,11 +142,26 @@ class DownloadEngine {
                             call.cancel()
                             throw Paused()
                         }
-                        val n = input.read(buf)
+                        val n = try {
+                            input.read(buf)
+                        } catch (e: IOException) {
+                            if (Storage.isNoSpace(e)) throw NoSpace()
+                            throw e
+                        }
                         if (n < 0) break
-                        raf.write(buf, 0, n)
+                        try {
+                            raf.write(buf, 0, n)
+                        } catch (e: IOException) {
+                            if (Storage.isNoSpace(e)) throw NoSpace()
+                            throw e
+                        }
                         downloaded += n
                         windowBytes += n
+                        if (spaceDir != null && downloaded - lastSpaceCheck >= 4L * 1024 * 1024) {
+                            val left = Storage.availableBytes(spaceDir)
+                            if (left in 0 until 32L * 1024 * 1024) throw NoSpace()
+                            lastSpaceCheck = downloaded
+                        }
                         val now = System.nanoTime()
                         if (now - lastEmit >= 300_000_000L) {
                             val elapsed = (now - windowStart) / 1_000_000_000.0
@@ -125,6 +178,9 @@ class DownloadEngine {
 
                 if (finalFile.exists()) finalFile.delete()
                 if (!part.renameTo(finalFile)) {
+                    if (part.length() > 100L * 1024 * 1024) {
+                        throw IOException("文件已下完，但无法改到最终文件名。请检查存储权限，不要把大文件再复制一份。")
+                    }
                     part.copyTo(finalFile, overwrite = true)
                     part.delete()
                 }

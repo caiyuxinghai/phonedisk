@@ -14,6 +14,7 @@ import com.phonedisk.app.data.TaskStatus
 import com.phonedisk.app.download.DownloadService
 import com.phonedisk.app.share.LanShareServer
 import com.phonedisk.app.util.FileNames
+import com.phonedisk.app.util.Format
 import com.phonedisk.app.util.LinkGuard
 import com.phonedisk.app.util.LinkResolver
 import com.phonedisk.app.util.Network
@@ -99,6 +100,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val name = FileNames.sanitize(if (userNamed) customName!!.trim() else guessed)
         val dir = Storage.dir(getApplication())
         dir.mkdirs()
+        val free = Storage.availableBytes(dir)
+        if (free in 0 until Storage.MIN_FREE_TO_START) {
+            return Built.Err(
+                "手机剩余空间只有 ${Format.bytes(free)}，不足 200 MB。请先把已下文件拷到电脑或删掉一些。",
+            )
+        }
         val dest = FileNames.unique(dir, name)
         return Built.Ok(
             DownloadTaskEntity(

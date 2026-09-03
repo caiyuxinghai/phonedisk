@@ -95,6 +95,7 @@ fun TasksScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            item { SpaceBanner(vm.saveFolder()) }
             if (Build.VERSION.SDK_INT >= 30 && !Storage.canWritePublic()) {
                 item {
                     PermissionCard(context)
@@ -122,6 +123,7 @@ fun TasksScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
     if (showAdd) {
         AddDialog(
             context = context,
+            folder = vm.saveFolder(),
             initialUrl = vm.incomingDraft,
             onDismiss = {
                 showAdd = false
@@ -216,6 +218,7 @@ private fun statusLabel(task: DownloadTaskEntity): String = when (task.status) {
 @Composable
 private fun AddDialog(
     context: Context,
+    folder: java.io.File,
     initialUrl: String?,
     onDismiss: () -> Unit,
     onAdd: (String, String?, Boolean) -> String?,
@@ -248,6 +251,12 @@ private fun AddDialog(
                     Checkbox(checked = wifiOnly, onCheckedChange = { wifiOnly = it })
                     Text("仅 Wi‑Fi 下载")
                 }
+                val free = Storage.availableBytes(folder)
+                Text(
+                    "当前剩余 ${if (free < 0) "未知" else Format.bytes(free)}。大文件开始下之前会再核对一次。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },

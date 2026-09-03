@@ -161,22 +161,47 @@ object Storage {
         )
     }
 
+    const val LOW_BYTES = 2L * 1024 * 1024 * 1024
+    const val CRITICAL_BYTES = 500L * 1024 * 1024
+    const val MIN_FREE_TO_START = 200L * 1024 * 1024
+
+    fun marginFor(needed: Long): Long = maxOf(200L * 1024 * 1024, needed / 50)
+
     fun hasSpace(dir: File, needed: Long): Boolean {
         if (needed <= 0) return true
-        return try {
-            val stat = StatFs(dir.absolutePath)
-            stat.availableBytes > needed + 50L * 1024 * 1024
-        } catch (_: Exception) {
-            true
-        }
+        val avail = availableBytes(dir)
+        if (avail < 0) return true
+        return avail > needed + marginFor(needed)
     }
 
     fun availableBytes(dir: File): Long {
         return try {
+            if (!dir.exists()) dir.mkdirs()
             StatFs(dir.absolutePath).availableBytes
         } catch (_: Exception) {
             -1
         }
+    }
+
+    fun notEnoughMessage(fileSize: Long, stillNeed: Long, available: Long): String {
+        return "空间不足：文件约 ${Format.bytes(fileSize)}，还需要约 ${Format.bytes(stillNeed)}，手机只剩 ${Format.bytes(available)}。请删文件或先拷到电脑后再继续。"
+    }
+
+    fun isNoSpace(error: Throwable?): Boolean {
+        var t = error
+        while (t != null) {
+            if (t is android.system.ErrnoException && t.errno == android.system.OsConstants.ENOSPC) {
+                return true
+            }
+            val msg = t.message.orEmpty().lowercase()
+            if (msg.contains("enospc") || msg.contains("no space") || msg.contains("空间不足") ||
+                msg.contains("空间写满")
+            ) {
+                return true
+            }
+            t = t.cause
+        }
+        return false
     }
 }
 
