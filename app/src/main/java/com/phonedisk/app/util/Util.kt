@@ -1,0 +1,214 @@
+package com.phonedisk.app.util
+
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.os.Build
+import android.os.Environment
+import android.os.StatFs
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import java.io.File
+import java.net.NetworkInterface
+import java.net.URLDecoder
+import java.util.Locale
+
+object LinkGuard {
+    fun validate(raw: String): Result<HttpUrl> {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) {
+            return Result.failure(IllegalArgumentException("请粘贴下载链接。"))
+        }
+        if (trimmed.startsWith("magnet:", ignoreCase = true)) {
+            return Result.failure(IllegalArgumentException("不支持磁力链接。请粘贴浏览器能直接点下去的 http(s) 文件地址。"))
+        }
+        val withScheme =
+            if (trimmed.startsWith("http://", true) || trimmed.startsWith("https://", true)) {
+                trimmed
+            } else {
+                "https://$trimmed"
+            }
+        val url = withScheme.toHttpUrlOrNull()
+            ?: return Result.failure(IllegalArgumentException("链接无效，请粘贴完整的 http(s) 地址。"))
+        val host = url.host.lowercase(Locale.US)
+        if (host == "store.steampowered.com" ||
+            host == "steamcommunity.com" ||
+            host.endsWith(".steampowered.com")
+        ) {
+            return Result.failure(
+                IllegalArgumentException(
+                    "这是 Steam 页面，不是文件直链。Steam 游戏必须用电脑上的 Steam 客户端下载，无法通过链接下到手机。",
+                ),
+            )
+        }
+        if (host.contains("epicgames.com") && url.encodedPath.contains("/store")) {
+            return Result.failure(
+                IllegalArgumentException("Epic 商店页不是文件直链，无法下载游戏库里的游戏。"),
+            )
+        }
+        return Result.success(url)
+    }
+}
+
+object FileNames {
+    fun sanitize(name: String): String {
+        val cleaned = name
+            .replace(Regex("[\\\\/:*?\"<>|\\x00-\\x1F]"), "_")
+            .trim()
+            .trim('.')
+        val cut = if (cleaned.length > 180) cleaned.take(180) else cleaned
+        return cut.ifBlank { "download.bin" }
+    }
+
+    fun fromUrl(url: HttpUrl): String {
+        val last = url.pathSegments.lastOrNull { it.isNotBlank() } ?: "download.bin"
+        val decoded = try {
+            URLDecoder.decode(last, "UTF-8")
+        } catch (_: Exception) {
+            last
+        }
+        return sanitize(decoded)
+    }
+
+    fun fromDisposition(header: String?): String? {
+        if (header.isNullOrBlank()) return null
+        val star = Regex(
+            "filename\\*\\s*=\\s*(?:UTF-8''|utf-8'')([^;]+)",
+            RegexOption.IGNORE_CASE,
+        ).find(header)
+        if (star != null) {
+            return try {
+                sanitize(URLDecoder.decode(star.groupValues[1].trim().trim('"'), "UTF-8"))
+            } catch (_: Exception) {
+                sanitize(star.groupValues[1].trim().trim('"'))
+            }
+        }
+        val plain = Regex("filename\\s*=\\s*\"?([^\";]+)\"?", RegexOption.IGNORE_CASE).find(header)
+        return plain?.groupValues?.get(1)?.let { sanitize(it.trim()) }
+    }
+
+    fun unique(dir: File, name: String): File {
+        val base = File(dir, name)
+        if (!base.exists() && !partFile(base).exists()) return base
+        val dot = name.lastIndexOf('.')
+        val stem = if (dot > 0) name.substring(0, dot) else name
+        val ext = if (dot > 0) name.substring(dot) else ""
+        var i = 1
+        while (true) {
+            val candidate = File(dir, "$stem ($i)$ext")
+            if (!candidate.exists() && !partFile(candidate).exists()) return candidate
+            i++
+        }
+    }
+
+    fun partFile(finalFile: File): File = File(finalFile.parentFile, finalFile.name + ".part")
+}
+
+object Format {
+    fun bytes(value: Long): String {
+        if (value < 0) return "未知"
+        val units = arrayOf("B", "KB", "MB", "GB", "TB")
+        var n = value.toDouble()
+        var i = 0
+        while (n >= 1024 && i < units.lastIndex) {
+            n /= 1024
+            i++
+        }
+        return if (i == 0) "$value B" else String.format(Locale.US, "%.1f %s", n, units[i])
+    }
+
+    fun speed(bps: Long): String {
+        if (bps <= 0) return "0 B/s"
+        return bytes(bps) + "/s"
+    }
+
+    fun percent(downloaded: Long, total: Long): Float {
+        if (total <= 0) return 0f
+        return (downloaded.toDouble() / total.toDouble()).toFloat().coerceIn(0f, 1f)
+    }
+}
+
+object Storage {
+    fun dir(context: Context): File {
+        val publicDir = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+            "PhoneDisk",
+        )
+        return if (canWritePublic()) {
+            publicDir.mkdirs()
+            publicDir
+        } else {
+            val fallback = File(
+                context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),
+                "PhoneDisk",
+            )
+            fallback.mkdirs()
+            fallback
+        }
+    }
+
+    fun canWritePublic(): Boolean {
+        return if (Build.VERSION.SDK_INT >= 30) {
+            Environment.isExternalStorageManager()
+        } else {
+            true
+        }
+    }
+
+    fun usingPublicFolder(context: Context): Boolean {
+        return dir(context).absolutePath.contains(
+            "${File.separator}Download${File.separator}PhoneDisk",
+        )
+    }
+
+    fun hasSpace(dir: File, needed: Long): Boolean {
+        if (needed <= 0) return true
+        return try {
+            val stat = StatFs(dir.absolutePath)
+            stat.availableBytes > needed + 50L * 1024 * 1024
+        } catch (_: Exception) {
+            true
+        }
+    }
+
+    fun availableBytes(dir: File): Long {
+        return try {
+            StatFs(dir.absolutePath).availableBytes
+        } catch (_: Exception) {
+            -1
+        }
+    }
+}
+
+object Network {
+    fun isMeteredOk(context: Context): Boolean {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val net = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(net) ?: return false
+        return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+    }
+
+    fun localIpv4(): String? {
+        val ifaces = NetworkInterface.getNetworkInterfaces() ?: return null
+        val private = mutableListOf<String>()
+        val other = mutableListOf<String>()
+        for (iface in ifaces) {
+            if (!iface.isUp || iface.isLoopback) continue
+            for (addr in iface.inetAddresses) {
+                if (addr.isLoopbackAddress || addr.hostAddress.isNullOrBlank()) continue
+                val host = addr.hostAddress ?: continue
+                if (host.contains(':')) continue
+                if (host.startsWith("10.") ||
+                    host.startsWith("192.168.") ||
+                    host.matches(Regex("^172\\.(1[6-9]|2[0-9]|3[0-1])\\..*"))
+                ) {
+                    private += host
+                } else {
+                    other += host
+                }
+            }
+        }
+        return private.firstOrNull() ?: other.firstOrNull()
+    }
+}

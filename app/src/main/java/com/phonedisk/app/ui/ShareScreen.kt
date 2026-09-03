@@ -1,0 +1,128 @@
+package com.phonedisk.app.ui
+
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ShareScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    Scaffold(
+        modifier = modifier,
+        topBar = { TopAppBar(title = { Text("传到电脑") }) },
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = 16.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                "下完后有两种方式拷到电脑：用数据线，或让电脑和手机连同一 Wi‑Fi，用浏览器打开下面的地址。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("USB 拷贝", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        if (vm.usingPublicFolder()) {
+                            "插上数据线后，在电脑里打开手机存储 → Download → PhoneDisk。"
+                        } else {
+                            "当前没有「所有文件访问」权限，文件在应用私有目录，USB 可能看不到。请到「任务」页授权，或用下面的 Wi‑Fi 取文件。"
+                        },
+                    )
+                    Text(
+                        vm.saveFolder().absolutePath,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Wi‑Fi 取文件", style = MaterialTheme.typography.titleMedium)
+                    androidx.compose.foundation.layout.Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text("开启局域网服务")
+                        Switch(checked = vm.shareOn, onCheckedChange = { vm.toggleShare(it) })
+                    }
+                    vm.shareUrl?.let { url ->
+                        Text(url, style = MaterialTheme.typography.titleMedium)
+                        Button(onClick = {
+                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("url", url))
+                        }) { Text("复制地址") }
+                    }
+                    vm.shareError?.let {
+                        Text(it, color = MaterialTheme.colorScheme.error)
+                    }
+                    if (vm.shareOn) {
+                        Text(
+                            "电脑浏览器打开这个地址，点文件即可下载。只用在家里的 Wi‑Fi，不要开给公共网络。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("长时间下载", style = MaterialTheme.typography.titleMedium)
+                    Text("大文件建议关掉电池优化，避免系统把下载杀掉。")
+                    OutlinedButton(onClick = { requestIgnoreBattery(context) }) {
+                        Text("允许忽略电池优化")
+                    }
+                }
+            }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+private fun requestIgnoreBattery(context: Context) {
+    if (Build.VERSION.SDK_INT < 23) return
+    val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+    if (pm.isIgnoringBatteryOptimizations(context.packageName)) return
+    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+        data = Uri.parse("package:${context.packageName}")
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    try {
+        context.startActivity(intent)
+    } catch (_: Exception) {
+        context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+    }
+}
