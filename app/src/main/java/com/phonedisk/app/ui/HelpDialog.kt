@@ -1,5 +1,8 @@
 package com.phonedisk.app.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -11,10 +14,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.phonedisk.app.util.AppLog
 
 @Composable
 fun HelpDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("使用方法与注意事项") },
@@ -46,10 +52,22 @@ fun HelpDialog(onDismiss: () -> Unit) {
                         "• 若没给全部文件权限，卸载应用可能把已下文件一起删掉，先拷到电脑。",
                     style = MaterialTheme.typography.bodyMedium,
                 )
+                Text("调试信息", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    AppLog.snapshot(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         },
         confirmButton = {
             TextButton(onClick = onDismiss) { Text("知道了") }
+        },
+        dismissButton = {
+            TextButton(onClick = {
+                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("phonedisk-debug", AppLog.snapshot()))
+            }) { Text("复制调试信息") }
         },
     )
 }

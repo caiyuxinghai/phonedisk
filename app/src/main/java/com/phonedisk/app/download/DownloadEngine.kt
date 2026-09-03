@@ -1,5 +1,6 @@
 package com.phonedisk.app.download
 
+import com.phonedisk.app.util.AppLog
 import com.phonedisk.app.util.FileNames
 import com.phonedisk.app.util.HtmlPageException
 import com.phonedisk.app.util.HttpClients
@@ -36,21 +37,27 @@ class DownloadEngine {
         val headClient = client.newBuilder().readTimeout(20, TimeUnit.SECONDS).build()
         try {
             headClient.newCall(request(Request.Builder().url(url).head())).execute().use { resp ->
-                val len = resp.header("Content-Length")?.toLongOrNull() ?: -1L
-                if (len > 0) return len
-                parseContentRange(resp.header("Content-Range"))?.let { return it }
+                plausibleSize(resp.header("Content-Length")?.toLongOrNull() ?: -1L, resp.header("Content-Type"))?.let { return it }
+                plausibleSize(parseContentRange(resp.header("Content-Range")) ?: -1L, resp.header("Content-Type"))?.let { return it }
             }
         } catch (_: Exception) {
         }
         try {
             headClient.newCall(request(Request.Builder().url(url).header("Range", "bytes=0-0"))).execute().use { resp ->
-                parseContentRange(resp.header("Content-Range"))?.let { return it }
-                val len = resp.header("Content-Length")?.toLongOrNull() ?: -1L
-                if (len > 1) return len
+                plausibleSize(parseContentRange(resp.header("Content-Range")) ?: -1L, resp.header("Content-Type"))?.let { return it }
+                plausibleSize(resp.header("Content-Length")?.toLongOrNull() ?: -1L, resp.header("Content-Type"))?.let { return it }
             }
         } catch (_: Exception) {
         }
         return -1L
+    }
+
+    private fun plausibleSize(len: Long, contentType: String?): Long? {
+        if (len <= 1L) return null
+        if (len > 4L * 1024 * 1024 * 1024 * 1024) return null
+        val ct = contentType.orEmpty().lowercase()
+        if (ct.contains("text/html") || ct.contains("application/xhtml")) return null
+        return len
     }
 
     private fun parseContentRange(header: String?): Long? {
@@ -99,9 +106,10 @@ class DownloadEngine {
                 val body = response.body ?: throw IllegalStateException("空响应")
                 val contentType = response.header("Content-Type").orEmpty().lowercase()
                 val contentLength = body.contentLength()
-                if (contentType.contains("text/html") && contentLength in 0..2_000_000 && existing == 0L) {
-                    val html = body.string()
-                    throw HtmlPageException(html.take(400_000), response.request.url.toString())
+                AppLog.i("GET ${response.code} ct=$contentType cl=$contentLength ${url.take(96)}")
+                if ((contentType.contains("text/html") || contentType.contains("application/xhtml")) && existing == 0L) {
+                    val html = body.string().take(400_000)
+                    throw HtmlPageException(html, response.request.url.toString())
                 }
 
                 val rangeOk = response.code == 206

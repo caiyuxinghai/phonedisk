@@ -13,6 +13,7 @@ import com.phonedisk.app.data.TaskRepository
 import com.phonedisk.app.data.TaskStatus
 import com.phonedisk.app.download.DownloadService
 import com.phonedisk.app.share.LanShareServer
+import com.phonedisk.app.util.AppLog
 import com.phonedisk.app.util.FileNames
 import com.phonedisk.app.util.Format
 import com.phonedisk.app.util.LinkGuard
@@ -73,6 +74,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (entities.isNotEmpty()) {
             viewModelScope.launch {
                 entities.forEach { repo.insert(it) }
+                AppLog.i("queued ${entities.size} task(s)")
                 DownloadService.kick(getApplication())
             }
         }

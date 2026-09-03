@@ -17,6 +17,7 @@ import com.phonedisk.app.MainActivity
 import com.phonedisk.app.R
 import com.phonedisk.app.data.TaskRepository
 import com.phonedisk.app.data.TaskStatus
+import com.phonedisk.app.util.AppLog
 import com.phonedisk.app.util.FileNames
 import com.phonedisk.app.util.Format
 import com.phonedisk.app.util.HtmlPageException
@@ -112,18 +113,22 @@ class DownloadService : Service() {
                     } catch (e: Exception) {
                         throw IllegalStateException(e.message ?: "链接无法解析")
                     }
+                    AppLog.i("task ${task.id} rewrite -> ${resolved.url.take(120)}")
                     val part = FileNames.partFile(dest)
                     val probed = engine.probeSize(resolved.url, resolved.referer)
+                    AppLog.i("task ${task.id} probeSize=$probed free=${Storage.availableBytes(dest.parentFile ?: dest)}")
                     val knownSize = if (probed > 0) probed else task.totalBytes
                     if (knownSize > 0) {
                         val stillNeed = (knownSize - part.length().coerceAtLeast(0)).coerceAtLeast(0)
                         val avail = Storage.availableBytes(dest.parentFile ?: dest)
                         if (!Storage.hasSpace(dest.parentFile ?: dest, stillNeed)) {
+                            val msg = Storage.notEnoughMessage(knownSize, stillNeed, avail)
+                            AppLog.e("task ${task.id} $msg")
                             repo.update(
                                 task.copy(
                                     status = TaskStatus.FAILED,
                                     totalBytes = knownSize,
-                                    errorMessage = Storage.notEnoughMessage(knownSize, stillNeed, avail),
+                                    errorMessage = msg,
                                     speedBps = 0,
                                 ),
                             )
@@ -165,8 +170,18 @@ class DownloadService : Service() {
                             onProgress = sink,
                         )
                     } catch (html: HtmlPageException) {
+                        AppLog.i("task ${task.id} html from ${html.pageUrl.take(120)}")
                         val next = LinkResolver.fromHtml(html.pageUrl, html.html)
                             ?: throw IllegalStateException("这不是可下载的文件。分享页若未公开，或需要登录，就无法下。")
+                        AppLog.i("task ${task.id} html extract -> ${next.url.take(120)}")
+                        val probed2 = engine.probeSize(next.url, next.referer ?: html.pageUrl)
+                        if (probed2 > 0) {
+                            val stillNeed = (probed2 - FileNames.partFile(dest).length().coerceAtLeast(0)).coerceAtLeast(0)
+                            val avail = Storage.availableBytes(dest.parentFile ?: dest)
+                            if (!Storage.hasSpace(dest.parentFile ?: dest, stillNeed)) {
+                                throw IllegalStateException(Storage.notEnoughMessage(probed2, stillNeed, avail))
+                            }
+                        }
                         engine.download(
                             url = next.url,
                             finalFile = dest,
@@ -225,6 +240,7 @@ class DownloadService : Service() {
                             ),
                         )
                     } else {
+                        AppLog.e("task ${task.id} failed", e)
                         repo.update(
                             latest.copy(
                                 status = TaskStatus.FAILED,

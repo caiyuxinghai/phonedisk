@@ -49,7 +49,8 @@ data class ResolvedLink(
     val suggestedName: String? = null,
 )
 
-class HtmlPageException(val html: String, val pageUrl: String) : Exception("html")
+class HtmlPageException(val html: String, val pageUrl: String) :
+    Exception("服务器返回了网页而不是文件。链接可能未公开、需要登录，或不是直接文件。")
 
 object LinkResolver {
     const val UA =
