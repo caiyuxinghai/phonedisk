@@ -29,15 +29,16 @@ fun HelpDialog(onDismiss: () -> Unit) {
                 Text(
                     "1. 允许通知。Android 11+ 在「任务」页打开「所有文件访问」，否则 USB 连电脑可能看不到文件。\n" +
                         "2. 下大文件前，到「传到电脑」允许忽略电池优化。\n" +
-                        "3. 点右下角 + ，粘贴浏览器能直接点下去的 http(s) 文件地址，建议勾选仅 Wi-Fi。\n" +
-                        "4. USB：手机选传输文件，电脑打开 Download/PhoneDisk 拷走。\n" +
-                        "5. Wi-Fi：手机和电脑连同一 Wi-Fi，打开「传到电脑」里的局域网服务，用电脑浏览器打开屏幕上的地址。用完关掉。",
+                        "3. 点右下角 + 粘贴链接，可一次多条。浏览器里也可「分享到 随身下载盘」。建议勾选仅 Wi-Fi。\n" +
+                        "4. 除直链外，还可试：Google Drive / 文档、Dropbox、OneDrive、GitHub 文件、Hugging Face、MediaFire 公开分享。\n" +
+                        "5. USB：手机选传输文件，电脑打开 Download/PhoneDisk 拷走。\n" +
+                        "6. Wi-Fi：手机和电脑连同一 Wi-Fi，打开「传到电脑」里的局域网服务，用电脑浏览器打开屏幕上的地址。用完关掉。",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Text("注意事项", style = MaterialTheme.typography.titleMedium)
                 Text(
                     "• 不能下 Steam / Epic / 战网游戏库，商店页不是文件直链。\n" +
-                        "• 不支持磁力、BT、要登录才能下的网盘分享页。\n" +
+                        "• 不支持磁力、BT。百度网盘等要登录的分享页也不行；网盘链接必须是公开可下的。\n" +
                         "• 大文件占空间和流量，下载前看剩余存储。\n" +
                         "• 不是所有网站都支持断点续传。\n" +
                         "• 局域网取文件没有密码，只在家里用，用完即关。\n" +

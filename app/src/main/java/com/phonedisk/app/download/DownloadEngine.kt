@@ -1,21 +1,17 @@
 package com.phonedisk.app.download
 
 import com.phonedisk.app.util.FileNames
+import com.phonedisk.app.util.HtmlPageException
+import com.phonedisk.app.util.HttpClients
+import com.phonedisk.app.util.LinkResolver
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.RandomAccessFile
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 class DownloadEngine {
-    val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(0, TimeUnit.SECONDS)
-        .writeTimeout(0, TimeUnit.SECONDS)
-        .followRedirects(true)
-        .followSslRedirects(true)
-        .build()
+    val client: OkHttpClient = HttpClients.client
 
     data class Progress(
         val downloaded: Long,
@@ -32,6 +28,7 @@ class DownloadEngine {
         finalFile: File,
         pauseFlag: AtomicBoolean,
         cancelFlag: AtomicBoolean,
+        referer: String? = null,
         onProgress: (Progress) -> Unit,
     ) {
         finalFile.parentFile?.mkdirs()
@@ -47,8 +44,11 @@ class DownloadEngine {
             attempt++
             val builder = Request.Builder()
                 .url(url)
-                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) PhoneDisk/1.0")
+                .header("User-Agent", LinkResolver.UA)
                 .header("Accept", "*/*")
+            if (!referer.isNullOrBlank()) {
+                builder.header("Referer", referer)
+            }
             if (existing > 0) {
                 builder.header("Range", "bytes=$existing-")
             }
@@ -64,7 +64,8 @@ class DownloadEngine {
                 val contentType = response.header("Content-Type").orEmpty().lowercase()
                 val contentLength = body.contentLength()
                 if (contentType.contains("text/html") && contentLength in 0..2_000_000 && existing == 0L) {
-                    throw IllegalStateException("这不是文件直链，服务器返回了网页。Steam/网盘分享页无法直接下载。")
+                    val html = body.string()
+                    throw HtmlPageException(html.take(400_000), response.request.url.toString())
                 }
 
                 val rangeOk = response.code == 206

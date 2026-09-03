@@ -36,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -57,6 +58,9 @@ fun TasksScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     var showAdd by remember { mutableStateOf(false) }
     var showHelp by remember { mutableStateOf(false) }
+    LaunchedEffect(vm.incomingDraft) {
+        if (!vm.incomingDraft.isNullOrBlank()) showAdd = true
+    }
     val active = tasks.filter { it.status != TaskStatus.COMPLETED }
 
     Scaffold(
@@ -86,7 +90,7 @@ fun TasksScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
         ) {
             item {
                 Text(
-                    "把电脑才能下的直链贴进来，用手机当硬盘。不支持 Steam 游戏库，只支持 http(s) 文件地址。",
+                    "把链接贴进来，或从浏览器点「分享到 随身下载盘」。支持直链、Google Drive / Dropbox / OneDrive、GitHub、Hugging Face。不支持 Steam 游戏库。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -118,10 +122,17 @@ fun TasksScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
     if (showAdd) {
         AddDialog(
             context = context,
-            onDismiss = { showAdd = false },
+            initialUrl = vm.incomingDraft,
+            onDismiss = {
+                showAdd = false
+                vm.clearIncoming()
+            },
             onAdd = { url, name, wifi ->
                 val err = vm.addTask(url, name, wifi)
-                if (err == null) showAdd = false
+                if (err == null) {
+                    showAdd = false
+                    vm.clearIncoming()
+                }
                 err
             },
         )
@@ -205,10 +216,11 @@ private fun statusLabel(task: DownloadTaskEntity): String = when (task.status) {
 @Composable
 private fun AddDialog(
     context: Context,
+    initialUrl: String?,
     onDismiss: () -> Unit,
     onAdd: (String, String?, Boolean) -> String?,
 ) {
-    var url by remember { mutableStateOf(clipboardText(context)) }
+    var url by remember { mutableStateOf(initialUrl?.trim()?.ifBlank { null } ?: clipboardText(context)) }
     var name by remember { mutableStateOf("") }
     var wifiOnly by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -221,10 +233,10 @@ private fun AddDialog(
                 OutlinedTextField(
                     value = url,
                     onValueChange = { url = it; error = null },
-                    label = { Text("文件直链") },
+                    label = { Text("链接（可多条，一行一个）") },
                     placeholder = { Text("https://…") },
                     modifier = Modifier.fillMaxWidth(),
-                    minLines = 2,
+                    minLines = 3,
                 )
                 OutlinedTextField(
                     value = name,
@@ -255,5 +267,5 @@ private fun clipboardText(context: Context): String {
     val clip = cm.primaryClip ?: return ""
     if (clip.itemCount <= 0) return ""
     val text = clip.getItemAt(0).coerceToText(context).toString().trim()
-    return if (text.startsWith("http://") || text.startsWith("https://")) text else ""
+    return if (text.contains("http://") || text.contains("https://")) text else ""
 }

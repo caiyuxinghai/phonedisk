@@ -19,6 +19,8 @@ import com.phonedisk.app.data.TaskRepository
 import com.phonedisk.app.data.TaskStatus
 import com.phonedisk.app.util.FileNames
 import com.phonedisk.app.util.Format
+import com.phonedisk.app.util.HtmlPageException
+import com.phonedisk.app.util.LinkResolver
 import com.phonedisk.app.util.Network
 import com.phonedisk.app.util.Storage
 import kotlinx.coroutines.CoroutineScope
@@ -118,12 +120,14 @@ class DownloadService : Service() {
                 startFg(progressNotification(task.fileName, task.downloadedBytes, task.totalBytes, 0))
                 acquireWakeLock()
                 try {
-                    engine.download(
-                        url = task.url,
-                        finalFile = dest,
-                        pauseFlag = pauseFlag,
-                        cancelFlag = cancelFlag,
-                    ) { p ->
+                    val resolved = try {
+                        LinkResolver.rewrite(task.url)
+                    } catch (e: Exception) {
+                        throw IllegalStateException(e.message ?: "链接无法解析")
+                    }
+                    var lastName: String? = null
+                    val sink: (com.phonedisk.app.download.DownloadEngine.Progress) -> Unit = { p ->
+                        if (!p.fileName.isNullOrBlank()) lastName = p.fileName
                         runBlocking {
                             val latest = repo.get(task.id) ?: return@runBlocking
                             repo.update(
@@ -137,12 +141,41 @@ class DownloadService : Service() {
                         }
                         startFg(progressNotification(task.fileName, p.downloaded, p.total, p.speedBps))
                     }
+                    try {
+                        engine.download(
+                            url = resolved.url,
+                            finalFile = dest,
+                            pauseFlag = pauseFlag,
+                            cancelFlag = cancelFlag,
+                            referer = resolved.referer,
+                            onProgress = sink,
+                        )
+                    } catch (html: HtmlPageException) {
+                        val next = LinkResolver.fromHtml(html.pageUrl, html.html)
+                            ?: throw IllegalStateException("这不是可下载的文件。分享页若未公开，或需要登录，就无法下。")
+                        engine.download(
+                            url = next.url,
+                            finalFile = dest,
+                            pauseFlag = pauseFlag,
+                            cancelFlag = cancelFlag,
+                            referer = next.referer ?: html.pageUrl,
+                            onProgress = sink,
+                        )
+                    }
                     val done = repo.get(task.id)
                     if (done != null) {
-                        val size = if (dest.exists()) dest.length() else done.downloadedBytes
+                        var finalPath = dest
+                        val hinted = lastName
+                        if (!done.userNamed && !hinted.isNullOrBlank() && hinted != dest.name && dest.exists()) {
+                            val renamed = FileNames.unique(dest.parentFile ?: dest, hinted)
+                            if (dest.renameTo(renamed)) finalPath = renamed
+                        }
+                        val size = if (finalPath.exists()) finalPath.length() else done.downloadedBytes
                         repo.update(
                             done.copy(
                                 status = TaskStatus.COMPLETED,
+                                fileName = finalPath.name,
+                                filePath = finalPath.absolutePath,
                                 downloadedBytes = size,
                                 totalBytes = size,
                                 speedBps = 0,

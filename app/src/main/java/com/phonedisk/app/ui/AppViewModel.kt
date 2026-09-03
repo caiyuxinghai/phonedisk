@@ -15,6 +15,7 @@ import com.phonedisk.app.download.DownloadService
 import com.phonedisk.app.share.LanShareServer
 import com.phonedisk.app.util.FileNames
 import com.phonedisk.app.util.LinkGuard
+import com.phonedisk.app.util.LinkResolver
 import com.phonedisk.app.util.Network
 import com.phonedisk.app.util.Storage
 import kotlinx.coroutines.flow.SharingStarted
@@ -37,31 +38,78 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var shareError by mutableStateOf<String?>(null)
         private set
+    var incomingDraft by mutableStateOf<String?>(null)
 
     private var server: LanShareServer? = null
 
+    fun acceptIntent(intent: Intent?) {
+        if (intent == null) return
+        val text = when (intent.action) {
+            Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)
+            Intent.ACTION_VIEW -> intent.data?.toString()
+            else -> null
+        }?.trim().orEmpty()
+        if (text.startsWith("http://") || text.startsWith("https://")) {
+            incomingDraft = text
+        }
+    }
+
+    fun clearIncoming() {
+        incomingDraft = null
+    }
+
     fun addTask(rawUrl: String, customName: String?, wifiOnly: Boolean): String? {
-        val url = LinkGuard.validate(rawUrl).getOrElse { return it.message }
+        val parts = LinkResolver.splitUrls(rawUrl)
+        if (parts.isEmpty()) return "请粘贴下载链接。"
+        val errors = mutableListOf<String>()
+        val entities = mutableListOf<DownloadTaskEntity>()
+        for (part in parts) {
+            when (val built = buildEntity(part, if (parts.size == 1) customName else null, wifiOnly)) {
+                is Built.Ok -> entities += built.entity
+                is Built.Err -> errors += built.message
+            }
+        }
+        if (entities.isNotEmpty()) {
+            viewModelScope.launch {
+                entities.forEach { repo.insert(it) }
+                DownloadService.kick(getApplication())
+            }
+        }
+        return when {
+            errors.isEmpty() -> null
+            entities.isEmpty() -> errors.joinToString("\n")
+            else -> "已添加 ${entities.size} 个，失败：\n${errors.joinToString("\n")}"
+        }
+    }
+
+    private sealed class Built {
+        data class Ok(val entity: DownloadTaskEntity) : Built()
+        data class Err(val message: String) : Built()
+    }
+
+    private fun buildEntity(rawUrl: String, customName: String?, wifiOnly: Boolean): Built {
+        val parsed = LinkGuard.validate(rawUrl).getOrElse { return Built.Err(it.message ?: "链接无效") }
+        val rewritten = try {
+            LinkResolver.rewrite(rawUrl)
+        } catch (e: Exception) {
+            return Built.Err(e.message ?: "链接无法解析")
+        }
         val userNamed = !customName.isNullOrBlank()
-        val name = FileNames.sanitize(
-            if (userNamed) customName!!.trim() else FileNames.fromUrl(url),
-        )
+        val guessed = rewritten.suggestedName ?: FileNames.fromUrl(parsed)
+        val name = FileNames.sanitize(if (userNamed) customName!!.trim() else guessed)
         val dir = Storage.dir(getApplication())
         dir.mkdirs()
         val dest = FileNames.unique(dir, name)
-        val entity = DownloadTaskEntity(
-            url = url.toString(),
-            fileName = dest.name,
-            filePath = dest.absolutePath,
-            status = TaskStatus.QUEUED,
-            wifiOnly = wifiOnly,
-            userNamed = userNamed,
+        return Built.Ok(
+            DownloadTaskEntity(
+                url = parsed.toString(),
+                fileName = dest.name,
+                filePath = dest.absolutePath,
+                status = TaskStatus.QUEUED,
+                wifiOnly = wifiOnly,
+                userNamed = userNamed,
+            ),
         )
-        viewModelScope.launch {
-            repo.insert(entity)
-            DownloadService.kick(getApplication())
-        }
-        return null
     }
 
     fun pause(id: Long) = DownloadService.pause(getApplication(), id)
